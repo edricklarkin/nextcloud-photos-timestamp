@@ -5,6 +5,11 @@ DEFAULT_DIR="/var/www/nextcloud/data/yourusername/files"
 TARGET_DIR="${1:-$DEFAULT_DIR}"
 LOGFILE="/var/log/nextcloud_photo_fix.log"
 
+# Default directory if no argument is provided
+DEFAULT_DIR="/var/www/nextcloud/data/yourusername/files"
+TARGET_DIR="${1:-$DEFAULT_DIR}"
+LOGFILE="/var/log/nextcloud_photo_fix.log"
+
 # Check if the target directory exists
 if [ ! -d "$TARGET_DIR" ]; then
   echo "Directory not found: $TARGET_DIR" | tee -a "$LOGFILE"
@@ -28,13 +33,23 @@ find "$TARGET_DIR" -type f -name "*.jpg" -o -name "*.jpeg" | while read file; do
   fi
 done
 
-# Process JSON metadata
-find "$TARGET_DIR" -name "*.json" -o -name "*.supplemental-m.json" | while read jsonfile; do
+# Process JSON metadata for all potential suffixes
+find "$TARGET_DIR" -type f -name "*.json" | while read jsonfile; do
+  # Determine the base filename by removing possible suffixes
   basefile="${jsonfile%.supplemental-m.json}"
+  basefile="${basefile%.supplemental-me.json}"
+  basefile="${basefile%.supplemental-met.json}"
+  basefile="${basefile%.supplemental-meta.json}"
+  basefile="${basefile%.supplemental-metad.json}"
+  basefile="${basefile%.supplemental-metada.json}"
+  basefile="${basefile%.supplemental-metadat.json}"
   basefile="${basefile%.supplemental-metadata.json}"
 
+  # Check if the base file exists
   if [ -f "$basefile" ]; then
     current_date=$(exiftool -s -s -s -FileModifyDate "$basefile")
+
+    # Extract timestamp from JSON
     timestamp=$(jq -r '.photoTakenTime.timestamp' "$jsonfile")
     formatted_date=$(date -d @"$timestamp" "+%Y:%m:%d %H:%M:%S")
 
@@ -60,3 +75,4 @@ else
 fi
 
 echo "Completed processing at $(date)" | tee -a "$LOGFILE"
+
