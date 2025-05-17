@@ -5,11 +5,6 @@ DEFAULT_DIR="/var/www/nextcloud/data/yourusername/files"
 TARGET_DIR="${1:-$DEFAULT_DIR}"
 LOGFILE="/var/log/nextcloud_photo_fix.log"
 
-# Default directory if no argument is provided
-DEFAULT_DIR="/var/www/nextcloud/data/yourusername/files"
-TARGET_DIR="${1:-$DEFAULT_DIR}"
-LOGFILE="/var/log/nextcloud_photo_fix.log"
-
 # Check if the target directory exists
 if [ ! -d "$TARGET_DIR" ]; then
   echo "Directory not found: $TARGET_DIR" | tee -a "$LOGFILE"
@@ -22,48 +17,78 @@ echo "Processing directory: $TARGET_DIR" | tee -a "$LOGFILE"
 NC_PATH="${TARGET_DIR#/var/www/nextcloud/data/}"
 echo "Nextcloud relative path: $NC_PATH" | tee -a "$LOGFILE"
 
-# Process EXIF metadata for images
-find "$TARGET_DIR" -type f -name "*.jpg" -o -name "*.jpeg" | while read file; do
-  current_date=$(exiftool -s -s -s -FileModifyDate "$file")
-  original_date=$(exiftool -s -s -s -DateTimeOriginal "$file")
+# Process files for EXIF and JSON metadata
+find "$TARGET_DIR" -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.mp4" \) | while read file; do
 
-  if [ -n "$original_date" ] && [ "$current_date" != "$original_date" ]; then
-    echo "Updating EXIF date for $file to $original_date" | tee -a "$LOGFILE"
-    sudo exiftool -overwrite_original "-FileModifyDate=$original_date" "$file"
-  fi
-done
+  # Extract EXIF DateTimeOriginal
+  exif_date_full=$(exiftool -s -s -s -DateTimeOriginal "$file" | awk '{print $1, $2}')
 
-# Process JSON metadata for all potential suffixes
-find "$TARGET_DIR" -type f -name "*.json" | while read jsonfile; do
-  # Determine the base filename by removing possible suffixes
-  basefile="${jsonfile%.supplemental-m.json}"
-  basefile="${basefile%.supplemental-me.json}"
-  basefile="${basefile%.supplemental-met.json}"
-  basefile="${basefile%.supplemental-meta.json}"
-  basefile="${basefile%.supplemental-metad.json}"
-  basefile="${basefile%.supplemental-metada.json}"
-  basefile="${basefile%.supplemental-metadat.json}"
-  basefile="${basefile%.supplemental-metadata.json}"
+  # If EXIF data is present, apply it as the FileModifyDate
+  if [ -n "$exif_date_full" ]; then
+    current_date_full=$(exiftool -s -s -s -FileModifyDate "$file" | awk '{print $1, $2}' | sed 's/+.*//')
 
-  # Check if the base file exists
-  if [ -f "$basefile" ]; then
-    current_date=$(exiftool -s -s -s -FileModifyDate "$basefile")
-
-    # Extract timestamp from JSON
-    timestamp=$(jq -r '.photoTakenTime.timestamp' "$jsonfile")
-    formatted_date=$(date -d @"$timestamp" "+%Y:%m:%d %H:%M:%S")
-
-    if [ -n "$formatted_date" ] && [ "$current_date" != "$formatted_date" ]; then
-      echo "Setting date for $basefile to $formatted_date" | tee -a "$LOGFILE"
-      sudo exiftool -overwrite_original "-FileModifyDate=$formatted_date" "$basefile"
+    # Apply EXIF date only if it differs from the current FileModifyDate
+    if [ "$current_date_full" != "$exif_date_full" ]; then
+      echo "Comparing EXIF: $exif_date_full vs FileModifyDate: $current_date_full" | tee -a "$LOGFILE"
+      echo "Applying EXIF date for $file: $exif_date_full (from EXIF)" | tee -a "$LOGFILE"
+      sudo exiftool -overwrite_original "-FileModifyDate=$exif_date_full" "$file"
+    else
+      echo "Skipping $file; EXIF date already applied" | tee -a "$LOGFILE"
     fi
+
+
+  else
+    # If EXIF is missing, look for the supplemental metadata JSON
+    # If EXIF is missing, look for the supplemental metadata JSON
+    echo "EXIF missing for $file; checking for JSON..." | tee -a "$LOGFILE"
+
+    # Match all potential JSON files with `supplemental-*.json`
+    for jsonfile in "${file}".supplemental-*.json; do
+      # Check if the file actually exists
+      [ -f "$jsonfile" ] || continue
+
+      echo "Found supplemental JSON: $jsonfile" | tee -a "$LOGFILE"
+
+      # Extract timestamp from JSON
+      timestamp=$(jq -r '.photoTakenTime.timestamp' "$jsonfile")
+
+      # Ensure the timestamp is numeric
+      if [[ "$timestamp" =~ ^[0-9]+$ ]]; then
+        formatted_date=$(date -d @"$timestamp" "+%Y:%m:%d %H:%M:%S")
+
+        # Validate the formatted date
+        if [[ "$formatted_date" =~ ^[[:digit:]]{4}:[[:digit:]]{2}:[[:digit:]]{2}[[:space:]][[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}$ ]]; then
+
+          # Extract current FileModifyDate and remove timezone offset
+          current_date_full=$(exiftool -s -s -s -FileModifyDate "$file" | awk '{print $1, $2}' | sed 's/+.*//')
+
+          # Compare current date with JSON date
+          if [ "$current_date_full" != "$formatted_date" ]; then
+            echo "Setting date for $file to $formatted_date (from JSON)" | tee -a "$LOGFILE"
+            sudo exiftool -overwrite_original "-FileModifyDate=$formatted_date" "-EXIF:DateTimeOriginal=$formatted_date" "$file"
+            break  # Stop after applying the first valid JSON file
+          else
+            echo "Skipping $file; FileModifyDate already matches JSON date" | tee -a "$LOGFILE"
+          fi
+
+        else
+          echo "Warning: Invalid formatted date in $jsonfile: $formatted_date" | tee -a "$LOGFILE"
+        fi
+
+      else
+        echo "Warning: Invalid or missing timestamp in $jsonfile" | tee -a "$LOGFILE"
+      fi
+
+    done
+
   fi
 done
+
 
 # Remove backup files generated by exiftool
 sudo find "$TARGET_DIR" -name "*.jpg_original" -delete
 sudo find "$TARGET_DIR" -name "*.jpeg_original" -delete
-sudo find "$TARGET_DIR" -name "*.mp4_original" -delete
+sudo find "$TARGET_DIR" -name "*.mp4_original" -delete 
 
 # Re-scan files in Nextcloud
 if [ -n "$NC_PATH" ]; then
@@ -75,4 +100,3 @@ else
 fi
 
 echo "Completed processing at $(date)" | tee -a "$LOGFILE"
-
