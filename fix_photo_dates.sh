@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Default directory if no argument is provided
-DEFAULT_DIR="/var/www/nextcloud/data/yourusername/files"
+DEFAULT_DIR="/var/snap/nextcloud/common/nextcloud/data/yourusername/files"
 TARGET_DIR="${1:-$DEFAULT_DIR}"
 LOGFILE="/var/log/nextcloud_photo_fix.log"
 
@@ -14,7 +14,7 @@ fi
 echo "Processing directory: $TARGET_DIR" | tee -a "$LOGFILE"
 
 # Extract Nextcloud path (e.g., yourusername/files/Photos from 2014)
-NC_PATH="${TARGET_DIR#/var/www/nextcloud/data/}"
+NC_PATH="${TARGET_DIR#/var/snap/nextcloud/common/nextcloud/data/}"
 echo "Nextcloud relative path: $NC_PATH" | tee -a "$LOGFILE"
 
 # Process files for EXIF and JSON metadata
@@ -93,10 +93,10 @@ sudo find "$TARGET_DIR" -name "*.mp4_original" -delete
 # Re-scan files in Nextcloud
 if [ -n "$NC_PATH" ]; then
   echo "Scanning Nextcloud path: $NC_PATH" | tee -a "$LOGFILE"
-  sudo -u www-data php /var/www/nextcloud/occ files:scan --path="$NC_PATH" >> "$LOGFILE" 2>&1
+  sudo nextcloud.occ files:scan --path="$NC_PATH" >> "$LOGFILE" 2>&1
 else
   echo "Scanning all files in Nextcloud" | tee -a "$LOGFILE"
-  sudo -u www-data php /var/www/nextcloud/occ files:scan --all >> "$LOGFILE" 2>&1
+  sudo nextcloud.occ files:scan --all >> "$LOGFILE" 2>&1
 fi
 
 echo "Completed processing at $(date)" | tee -a "$LOGFILE"
