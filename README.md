@@ -1,5 +1,6 @@
 # Nextcloud Photo Fixer
 
+**Updated to work with Snap Installs of NextCloud**
 A  script to correct file modification dates in Nextcloud based on EXIF metadata or supplemental JSON metadata files (e.g., Google Takeout). It ensures that photos and videos display the correct date in the Nextcloud Photos app.
 
 ## Features
